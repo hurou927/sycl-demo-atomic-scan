@@ -1,4 +1,10 @@
-# Sycl Demo: Scan
+# Sycl(DPC++/OneAPI) Demo: Scan
+
+## Require
+
+```sh
+$ . /opt/intel/oneapi/setvars.sh
+```
 
 ## Compile
 
