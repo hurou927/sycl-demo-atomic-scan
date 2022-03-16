@@ -164,10 +164,13 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
   free(DEVICE_DYNAMIC_GROUP_ID, q);
 }
 
-int main() {
+int main(int argc, char * argv[]) {
 
   auto t = TimeStamp<std::string>();
-  const size_t num_items = 1024 * 16;
+  size_t num_items = 1024 * 16;
+  if (argc == 2) {
+    num_items = atoi (argv[1]) * 1024;
+  }
 
   int *data = static_cast<int *>(malloc(num_items * sizeof(int)));
   for (int i = 0; i < num_items; i++)
@@ -182,6 +185,8 @@ int main() {
   t.stamp("host");
   hostInlineScan<int>(data, num_items);
   t.stamp();
+
+  cout << "num_items: " << num_items << "\n";
   t.print();
   for (int i = 0 ; i < 10; i++)
     cout << data[i] << ",";
