@@ -160,7 +160,7 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
   /* cout << "\n"; */
   /* free(hGroupSum); */
   free(DEVICE_RESULT, q);
-  free(DEVICE_DYNAMIC_GROUP_ID, q);
+  free(DEVICE_GROUP_SUM, q);
   free(DEVICE_DYNAMIC_GROUP_ID, q);
 }
 
