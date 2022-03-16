@@ -176,7 +176,7 @@ int main(int argc, char * argv[]) {
   for (int i = 0; i < num_items; i++)
     data[i] = 1;
 
-  default_selector d_selector;
+  gpu_selector d_selector;
   queue q(d_selector);
   cout << "Running on device: " << q.get_device().get_info<info::device::name>()
        << "\n";
