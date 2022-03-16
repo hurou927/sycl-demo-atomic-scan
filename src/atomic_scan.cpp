@@ -7,7 +7,7 @@
 #include <ext/oneapi/atomic_ref.hpp>
 #include <ext/oneapi/reduction.hpp>
 #include <iostream>
-#include "./helpers/timestamp.hpp"
+#include <helpers/timestamp.hpp>
 using namespace cl::sycl;
 using namespace std;
 
