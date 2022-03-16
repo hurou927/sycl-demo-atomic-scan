@@ -9,6 +9,9 @@ $ . /opt/intel/oneapi/setvars.sh
 ## Compile
 
 ```sh
+$ mkdir build
+$ cd build
+$ cmake ..
 $ make
 ```
 
