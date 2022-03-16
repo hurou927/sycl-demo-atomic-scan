@@ -7,6 +7,7 @@
 #include <ext/oneapi/atomic_ref.hpp>
 #include <ext/oneapi/reduction.hpp>
 #include <iostream>
+#include "./helpers/timestamp.hpp"
 using namespace cl::sycl;
 using namespace std;
 
@@ -15,6 +16,13 @@ constexpr unsigned int log2(unsigned int n) {
 }
 constexpr unsigned int NUM_THREADS_PER_GROUP = 64;
 constexpr unsigned int LOG2_NUM_THREADS_PER_GROUP = log2(NUM_THREADS_PER_GROUP);
+
+template <typename T>
+void hostInlineScan(T *host_input_buf, size_t num_items) {
+  for(int i = 1; i< num_items; i ++) {
+    host_input_buf[i] += host_input_buf[i-1];
+  }
+}
 
 template <typename T>
 void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
@@ -158,6 +166,7 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
 
 int main() {
 
+  auto t = TimeStamp<std::string>();
   const size_t num_items = 1024 * 16;
 
   int *data = static_cast<int *>(malloc(num_items * sizeof(int)));
@@ -168,14 +177,19 @@ int main() {
   queue q(d_selector);
   cout << "Running on device: " << q.get_device().get_info<info::device::name>()
        << "\n";
-
+  t.stamp("device");
   deviceInlineScan<int>(q, data, num_items);
-
+  t.stamp("host");
+  hostInlineScan<int>(data, num_items);
+  t.stamp();
+  t.print();
   for (int i = 0 ; i < 10; i++)
     cout << data[i] << ",";
   cout << "...,";
   for (int i = num_items - 10; i < num_items; i++)
     cout << data[i] << ",";
   cout << "\n";
+
+  free(data);
   return 0;
 }
