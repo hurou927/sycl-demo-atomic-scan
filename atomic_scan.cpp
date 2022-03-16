@@ -13,31 +13,32 @@ using namespace std;
 constexpr unsigned int log2(unsigned int n) {
   return n <= 1 ? 0 : 1 + log2((n + 1) / 2);
 }
-constexpr unsigned int numThreadsPerGroup = 64;
-constexpr unsigned int log2NumThreadsPerGroup = log2(numThreadsPerGroup);
+constexpr unsigned int NUM_THREADS_PER_GROUP = 64;
+constexpr unsigned int LOG2_NUM_THREADS_PER_GROUP = log2(NUM_THREADS_PER_GROUP);
 
 template <typename T>
-void deviceInlineScan(queue &q, T *hostBuf, size_t numItems) {
+void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
 
-  auto numGroups = (numItems + numThreadsPerGroup - 1) / numThreadsPerGroup;
-  auto numThreads = numGroups * numThreadsPerGroup;
+  auto num_groups =
+      (num_items + NUM_THREADS_PER_GROUP - 1) / NUM_THREADS_PER_GROUP;
+  auto num_threads = num_groups * NUM_THREADS_PER_GROUP;
 
-  T *DEVICE_RESULT = static_cast<T *>(malloc_device(numItems * sizeof(T), q));
+  T *DEVICE_RESULT = static_cast<T *>(malloc_device(num_items * sizeof(T), q));
   T *DEVICE_GROUP_SUM =
-      static_cast<T *>(malloc_device(numGroups * sizeof(T), q));
+      static_cast<T *>(malloc_device(num_groups * sizeof(T), q));
   int *DEVICE_DYNAMIC_GROUP_ID =
       static_cast<int *>(malloc_device(1 * sizeof(int), q));
   int *DEVICE_COUNTER = static_cast<int *>(malloc_device(1 * sizeof(int), q));
   q.memset(DEVICE_DYNAMIC_GROUP_ID, 0, sizeof(int) * 1);
   q.memset(DEVICE_COUNTER, 0, sizeof(int) * 1);
 
-  q.memcpy(DEVICE_RESULT, hostBuf, sizeof(T) * numItems).wait();
+  q.memcpy(DEVICE_RESULT, host_input_buf, sizeof(T) * num_items).wait();
   q.submit([&](handler &cgh) {
     // https://support.codeplay.com/t/compile-error-reference-to-non-static-member-function-must-be-called/383
     /* auto deviceBuf = buf.template get_access<access::mode::read_write>(cgh);
      */
 
-    auto localRange = range<1>(numThreadsPerGroup);
+    auto localRange = range<1>(NUM_THREADS_PER_GROUP);
     accessor<T, 1, access::mode::read_write, access::target::local>
         LOCAL_SCAN_SPACE(localRange, cgh);
     auto oneRange = range<1>(1);
@@ -66,13 +67,13 @@ void deviceInlineScan(queue &q, T *hostBuf, size_t numItems) {
       }
       it.barrier(access::fence_space::local_space);
       v_group_id = LOCAL_GROUP_ID[0];
-      int v_global_id = v_group_id * numThreadsPerGroup + local_id;
+      int v_global_id = v_group_id * NUM_THREADS_PER_GROUP + local_id;
 
       //=============================================
       // Load item from device memory
       //=============================================
       T local_item;
-      if (v_global_id < numItems) {
+      if (v_global_id < num_items) {
         local_item = DEVICE_RESULT[v_global_id];
       } else {
         local_item = 0;
@@ -85,7 +86,8 @@ void deviceInlineScan(queue &q, T *hostBuf, size_t numItems) {
 
       LOCAL_SCAN_SPACE[local_id] = local_inclusive_prefix_sum;
 
-      for (auto offset = 1; offset < numThreadsPerGroup; offset = offset << 1) {
+      for (auto offset = 1; offset < NUM_THREADS_PER_GROUP;
+           offset = offset << 1) {
         int needUpdate = local_id >= offset ? 1 : 0;
         it.barrier(access::fence_space::local_space);
         if (needUpdate != 0) {
@@ -112,7 +114,7 @@ void deviceInlineScan(queue &q, T *hostBuf, size_t numItems) {
                                 ext::oneapi::memory_scope::device,
                                 access::address_space::global_space>
             ATOMIC_COUNTER(DEVICE_COUNTER[0]);
-        T group_sum = LOCAL_SCAN_SPACE[numThreadsPerGroup - 1];
+        T group_sum = LOCAL_SCAN_SPACE[NUM_THREADS_PER_GROUP - 1];
         if (v_group_id == 0) {
           DEVICE_GROUP_SUM[v_group_id] = group_sum;
           ATOMIC_COUNTER++;
@@ -132,16 +134,16 @@ void deviceInlineScan(queue &q, T *hostBuf, size_t numItems) {
       //==================================================
       // Global scan and write result
       //==================================================
-      if (v_global_id < numItems) {
+      if (v_global_id < num_items) {
         DEVICE_RESULT[v_global_id] =
             local_inclusive_prefix_sum - local_item + LOCAL_SUM[0];
       }
     };
-    cgh.parallel_for<class pm>(nd_range<1>{range<1>(numItems), localRange},
+    cgh.parallel_for<class pm>(nd_range<1>{range<1>(num_items), localRange},
                                kernel);
   });
   q.wait();
-  q.memcpy(hostBuf, DEVICE_RESULT, sizeof(T) * numItems);
+  q.memcpy(host_input_buf, DEVICE_RESULT, sizeof(T) * num_items);
 
   /* int *hGroupSum = static_cast<T *>(malloc(sizeof(int) * numGroups)); */
   /* q.memcpy(hGroupSum, dGroupSum, sizeof(T) * numGroups).wait(); */
@@ -156,10 +158,10 @@ void deviceInlineScan(queue &q, T *hostBuf, size_t numItems) {
 
 int main() {
 
-  const size_t numItems = 1024*16;
+  const size_t num_items = 1024 * 16;
 
-  int *data = static_cast<int *>(malloc(numItems * sizeof(int)));
-  for (int i = 0; i < numItems; i++)
+  int *data = static_cast<int *>(malloc(num_items * sizeof(int)));
+  for (int i = 0; i < num_items; i++)
     data[i] = 1;
 
   default_selector d_selector;
@@ -167,13 +169,12 @@ int main() {
   cout << "Running on device: " << q.get_device().get_info<info::device::name>()
        << "\n";
 
-  deviceInlineScan<int>(q, data, numItems);
-
+  deviceInlineScan<int>(q, data, num_items);
 
   for (int i = 0 ; i < 10; i++)
     cout << data[i] << ",";
   cout << "...,";
-  for (int i = numItems - 10 ; i < numItems; i++)
+  for (int i = num_items - 10; i < num_items; i++)
     cout << data[i] << ",";
   cout << "\n";
   return 0;
