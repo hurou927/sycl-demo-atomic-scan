@@ -15,6 +15,18 @@ $ cmake ..
 $ make
 ```
 
+## Run
+
+```sh
+ ❯ ./src/atomic_scan 1024
+[100%] Built target atomic_scan
+Running on device: Intel(R) UHD Graphics 750 [0x4c8a]
+kernel execution time without submission: 1462.47 ms
+kernel execution time without submission: 2.7351 GB/s
+num_items: 1073741824
+1. device. 2510.89 ms
+2. host. 300.694 ms
+```
 
 ## Algorithm
 
