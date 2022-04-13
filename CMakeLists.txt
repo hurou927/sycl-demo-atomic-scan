@@ -17,5 +17,11 @@ add_compile_options(-O3)
 #   *-cpu
 #        description: CPU
 #        product: 11th Gen Intel(R) Core(TM) i7-11700K @ 3.60GHz
+
+
+## Intel
 set(CMAKE_CXX_FLAGS "-fsycl-targets=spir64_gen -Xs \"-device tgllp\"")
+
+## CUDA
+# set(CMAKE_CXX_FLAGS "-fsycl-targets=nvptx64-nvidia-cuda")
 add_subdirectory(src)

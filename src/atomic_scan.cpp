@@ -1,26 +1,27 @@
-#include <algorithm>
 #include <CL/sycl.hpp>
 #include <CL/sycl/access/access.hpp>
 #include <CL/sycl/atomic.hpp>
+#include <CL/sycl/group_algorithm.hpp>
 #include <CL/sycl/memory_enums.hpp>
 #include <CL/sycl/nd_item.hpp>
+#include <algorithm>
 #include <ext/oneapi/atomic_ref.hpp>
+#include <ext/oneapi/group_algorithm.hpp>
 #include <ext/oneapi/reduction.hpp>
-#include <iostream>
 #include <helpers/timestamp.hpp>
+#include <iostream>
 using namespace cl::sycl;
 using namespace std;
 
 constexpr unsigned int log2(unsigned int n) {
   return n <= 1 ? 0 : 1 + log2((n + 1) / 2);
 }
-constexpr unsigned int NUM_THREADS_PER_GROUP = 64;
+constexpr unsigned int NUM_THREADS_PER_GROUP = 512;
 constexpr unsigned int LOG2_NUM_THREADS_PER_GROUP = log2(NUM_THREADS_PER_GROUP);
 
-template <typename T>
-void hostInlineScan(T *host_input_buf, size_t num_items) {
-  for(int i = 1; i< num_items; i ++) {
-    host_input_buf[i] += host_input_buf[i-1];
+template <typename T> void hostInlineScan(T *host_input_buf, size_t num_items) {
+  for (int i = 1; i < num_items; i++) {
+    host_input_buf[i] += host_input_buf[i - 1];
   }
 }
 
@@ -34,14 +35,17 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
   T *DEVICE_RESULT = static_cast<T *>(malloc_device(num_items * sizeof(T), q));
   T *DEVICE_GROUP_SUM =
       static_cast<T *>(malloc_device(num_groups * sizeof(T), q));
+  /* int *DEVICE_GROUP_FLAG = */
+  /*     static_cast<int *>(malloc_device(num_groups * sizeof(int), q)); */
   int *DEVICE_DYNAMIC_GROUP_ID =
       static_cast<int *>(malloc_device(1 * sizeof(int), q));
   int *DEVICE_COUNTER = static_cast<int *>(malloc_device(1 * sizeof(int), q));
   q.memset(DEVICE_DYNAMIC_GROUP_ID, 0, sizeof(int) * 1);
   q.memset(DEVICE_COUNTER, 0, sizeof(int) * 1);
+  /* q.memset(DEVICE_GROUP_FLAG, 0, sizeof(int) * num_groups); */
 
   q.memcpy(DEVICE_RESULT, host_input_buf, sizeof(T) * num_items).wait();
-  q.submit([&](handler &cgh) {
+  event kernel_event = q.submit([&](handler &cgh) {
     // https://support.codeplay.com/t/compile-error-reference-to-non-static-member-function-must-be-called/383
     /* auto deviceBuf = buf.template get_access<access::mode::read_write>(cgh);
      */
@@ -90,21 +94,27 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
       // ============================================
       // Local scan
       // ============================================
-      T local_inclusive_prefix_sum = local_item;
+      /* T local_inclusive_prefix_sum = local_item; */
 
-      LOCAL_SCAN_SPACE[local_id] = local_inclusive_prefix_sum;
+      /* LOCAL_SCAN_SPACE[local_id] = local_inclusive_prefix_sum; */
 
-      for (auto offset = 1; offset < NUM_THREADS_PER_GROUP;
-           offset = offset << 1) {
-        int needUpdate = local_id >= offset ? 1 : 0;
-        it.barrier(access::fence_space::local_space);
-        if (needUpdate != 0) {
-          local_inclusive_prefix_sum += LOCAL_SCAN_SPACE[local_id - offset];
-        }
-        it.barrier(access::fence_space::local_space);
-        if (needUpdate != 0) {
-          LOCAL_SCAN_SPACE[local_id] = local_inclusive_prefix_sum;
-        }
+      /* for (auto offset = 1; offset < NUM_THREADS_PER_GROUP; */
+      /*      offset = offset << 1) { */
+      /*   int needUpdate = local_id >= offset ? 1 : 0; */
+      /*   it.barrier(access::fence_space::local_space); */
+      /*   if (needUpdate != 0) { */
+      /*     local_inclusive_prefix_sum += LOCAL_SCAN_SPACE[local_id - offset]; */
+      /*   } */
+      /*   it.barrier(access::fence_space::local_space); */
+      /*   if (needUpdate != 0) { */
+      /*     LOCAL_SCAN_SPACE[local_id] = local_inclusive_prefix_sum; */
+      /*   } */
+      /* } */
+      /* it.barrier(access::fence_space::local_space); */
+
+      T local_inclusive_prefix_sum = inclusive_scan_over_group(it.get_group(), local_item, cl::sycl::plus<>());
+      if(local_id == NUM_THREADS_PER_GROUP - 1) {
+        LOCAL_SCAN_SPACE[local_id] = local_inclusive_prefix_sum;
       }
       it.barrier(access::fence_space::local_space);
 
@@ -122,16 +132,29 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
                                 ext::oneapi::memory_scope::device,
                                 access::address_space::global_space>
             ATOMIC_COUNTER(DEVICE_COUNTER[0]);
+        /* ext::oneapi::atomic_ref<int, ext::oneapi::memory_order::acq_rel, */
+        /*                         ext::oneapi::memory_scope::device, */
+        /*                         access::address_space::global_space> */
+        /*     ATOMIC_STORE(DEVICE_GROUP_FLAG[v_group_id]); */
         T group_sum = LOCAL_SCAN_SPACE[NUM_THREADS_PER_GROUP - 1];
         if (v_group_id == 0) {
           DEVICE_GROUP_SUM[v_group_id] = group_sum;
           ATOMIC_COUNTER++;
+          /* ATOMIC_STORE.store(1); */
           LOCAL_SUM[0] = 0;
         } else {
+          /* ext::oneapi::atomic_ref<int, ext::oneapi::memory_order::acq_rel, */
+          /*                         ext::oneapi::memory_scope::device, */
+          /*                         access::address_space::global_space> */
+          /*     ATOMIC_LOAD(DEVICE_GROUP_FLAG[v_group_id - 1]); */
+          /* while (ATOMIC_LOAD.load() != 1) { */
+          /* } */
           while (ATOMIC_COUNTER.load() != v_group_id) {
           }
+
           auto exclusive_group_prefix_sum = DEVICE_GROUP_SUM[v_group_id - 1];
           DEVICE_GROUP_SUM[v_group_id] = exclusive_group_prefix_sum + group_sum;
+          /* ATOMIC_STORE.store(1); */
           ATOMIC_COUNTER++;
           LOCAL_SUM[0] = exclusive_group_prefix_sum;
         }
@@ -153,23 +176,33 @@ void deviceInlineScan(queue &q, T *host_input_buf, size_t num_items) {
   q.wait();
   q.memcpy(host_input_buf, DEVICE_RESULT, sizeof(T) * num_items);
 
-  /* int *hGroupSum = static_cast<T *>(malloc(sizeof(int) * numGroups)); */
-  /* q.memcpy(hGroupSum, dGroupSum, sizeof(T) * numGroups).wait(); */
-  /* for (int i = 0; i < numGroups; i++) */
-  /*   cout << hGroupSum[i] << ","; */
+  /* int *h = static_cast<T *>(malloc(sizeof(int) * num_groups)); */
+  /* q.memcpy(h, DEVICE_GROUP_FLAG, sizeof(T) * num_groups).wait(); */
+  /* for (int i = 0; i < num_groups; i++) */
+  /*   cout << h[i] << ","; */
   /* cout << "\n"; */
-  /* free(hGroupSum); */
+  /* free(h); */
   free(DEVICE_RESULT, q);
   free(DEVICE_GROUP_SUM, q);
   free(DEVICE_DYNAMIC_GROUP_ID, q);
+
+  auto end =
+      kernel_event.get_profiling_info<info::event_profiling::command_end>();
+  auto start =
+      kernel_event.get_profiling_info<info::event_profiling::command_start>();
+  
+  std::cout << "kernel execution time without submission: "
+            <<  ((end - start) / 1.0e6) << " ms\n";
+  std::cout << "kernel execution time without submission: "
+            << static_cast<double>(sizeof(T)) * num_items / 1024 / 1024 / 1024 / ((end - start) / 1.0e9) << " GB/s\n";
 }
 
-int main(int argc, char * argv[]) {
+int main(int argc, char *argv[]) {
 
   auto t = TimeStamp<std::string>();
   size_t num_items = 1024 * 16;
   if (argc == 2) {
-    num_items = atoi (argv[1]) * 1024;
+    num_items = atoi(argv[1]) * 1024 * 1024;
   }
 
   int *data = static_cast<int *>(malloc(num_items * sizeof(int)));
@@ -188,7 +221,7 @@ int main(int argc, char * argv[]) {
 
   cout << "num_items: " << num_items << "\n";
   t.print();
-  for (int i = 0 ; i < 10; i++)
+  for (int i = 0; i < 10; i++)
     cout << data[i] << ",";
   cout << "...,";
   for (int i = num_items - 10; i < num_items; i++)
