@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
+set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 # add_compile_options(-Wall -Wextra -pedantic -Werror)
 add_compile_options(-O3)
 
